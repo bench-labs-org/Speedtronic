@@ -1,6 +1,12 @@
-# Speedtronic
+<div align="center">
 
 <img width="512" height="512" alt="Speedtronic Logo" src="https://github.com/user-attachments/assets/3389569b-430f-49f3-98b8-7c2d73dca8dc" />
+
+# Speedtronic
+
+*GPU-agnostic AI training, built for speed.*
+
+</div>
 
 **Be Fast, Be Efficient.**
 
