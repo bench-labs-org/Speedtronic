@@ -1,0 +1,38 @@
+# Small CPU smoke-test configuration.
+name: smoke
+seed: 1234
+max_steps: 4
+output_dir: runs/smoke
+model:
+  name: reference_transformer
+  vocab_size: 128
+  max_seq_len: 32
+  n_layer: 2
+  n_head: 4
+  n_kv_head: 2
+  d_model: 64
+  d_ff: 128
+data:
+  synthetic: true
+  num_tokens: 256
+  block_size: 32
+  micro_batch_size: 1
+  target_batch_size: 2
+  num_workers: 0
+optimizer:
+  lr: 0.0003
+  weight_decay: 0.01
+scheduler:
+  warmup_steps: 1
+  max_steps: 4
+precision:
+  mode: fp32
+compile: false
+checkpoint:
+  enabled: true
+  directory: checkpoints
+  every_steps: 2
+  keep_last: 2
+logging:
+  level: INFO
+  every_steps: 1

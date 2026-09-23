@@ -1,0 +1,45 @@
+# Start with: speedtronic train --config examples/diloco_master.yaml
+name: diloco-example
+max_steps: 10000
+output_dir: runs/diloco-master
+model:
+  name: reference_transformer
+  vocab_size: 512
+  max_seq_len: 128
+  n_layer: 2
+  n_head: 8
+  n_kv_head: 2
+  d_model: 256
+  d_ff: 768
+data:
+  block_size: 128
+  num_tokens: 100000
+  micro_batch_size: 1
+  target_batch_size: 8
+optimizer:
+  lr: 0.0003
+scheduler:
+  warmup_steps: 100
+  max_steps: 10000
+distributed:
+  enabled: true
+  mode: dumb_diloco
+  role: master
+  node_id: master-1
+  collaborators: []
+  repo_id: your-org/your-diloco-run
+  # Prefer HF_TOKEN=... in the environment over putting a token in YAML.
+  token: null
+  inner_steps: 500
+  poll_interval: 60
+  outer_lr: 0.7
+  outer_momentum: 0.9
+  state_dir: .speedtronic/diloco
+checkpoint:
+  enabled: true
+  directory: checkpoints
+  every_steps: 500
+  keep_last: 3
+logging:
+  level: INFO
+  every_steps: 10
