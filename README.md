@@ -1,6 +1,6 @@
 <div align="center">
 
-<img width="512" height="512" alt="Speedtronic Logo" src="https://github.com/user-attachments/assets/3389569b-430f-49f3-98b8-7c2d73dca8dc" />
+<img width="256" height="256" alt="Speedtronic Logo" src="https://github.com/user-attachments/assets/3389569b-430f-49f3-98b8-7c2d73dca8dc" />
 
 # Speedtronic
 
