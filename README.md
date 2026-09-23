@@ -1,5 +1,7 @@
 # Speedtronic
 
+<img width="512" height="512" alt="Speedtronic Logo" src="https://github.com/user-attachments/assets/3389569b-430f-49f3-98b8-7c2d73dca8dc" />
+
 **Be Fast, Be Efficient.**
 
 Speedtronic is an open-source PyTorch training framework. You bring your own `nn.Module`, dataset, and a single YAML config; it runs an efficient training loop on CPU, CUDA, or MPS, with optional asynchronous multi-node training (DumbDiLoCo) synced through a Hugging Face Hub repo instead of a dedicated parameter server.
