@@ -50,8 +50,7 @@ All notable Speedtronic changes are documented here. The project follows
   release. `torch.compile` and Inductor already perform graph capture and
   kernel scheduling; Speedtronic does not add a duplicate private-API flag.
 - Sophia, mixture-of-experts layers, FP8 training, and multi-GPU
-  pipeline/tensor parallelism remain deferred or out of scope as specified in
-  `v2_additions.md`.
+  pipeline/tensor parallelism remain deferred or out of scope.
 
 ## 0.1.0 - 2026-09-25
 

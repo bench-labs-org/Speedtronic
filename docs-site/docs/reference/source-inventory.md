@@ -75,7 +75,6 @@ The source inventory generator uses `ast.parse`; it does not import Speedtronic,
 | `configs/v2_smoke.yaml` | [Shipped Configs](../examples/shipped-configs) |
 | `configs/diloco.yaml` | [Shipped Configs](../examples/shipped-configs) |
 | `CHANGELOG.md` | Release and deferred-decision record |
-| `v2_additions.md` | v2 implementation specification |
 | `.github/workflows/ci.yml` | Python, documentation, and distribution gates |
 | `examples/train_reference.py` | [Shipped Examples](../examples/shipped-examples) |
 | `examples/diloco_master.yaml` | [Shipped Examples](../examples/shipped-examples) |

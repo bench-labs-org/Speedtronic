@@ -118,7 +118,6 @@ configs/*.yaml
 examples/*.py
 examples/*.yaml
 CHANGELOG.md
-v2_additions.md
 tests/*.py
 ```
 
