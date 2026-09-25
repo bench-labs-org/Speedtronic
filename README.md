@@ -8,6 +8,8 @@
 
 </div>
 
+[![PyPI version](https://img.shields.io/pypi/v/speedtronic.svg)](https://pypi.org/project/speedtronic/)
+
 **Be Fast, Be Efficient.**
 
 Speedtronic is an open-source PyTorch training framework. You bring your own `nn.Module`, dataset, and a single YAML config; it runs an efficient training loop on CPU, CUDA, or MPS, with optional asynchronous multi-node training (DumbDiLoCo) synced through a Hugging Face Hub repo instead of a dedicated parameter server.
@@ -31,11 +33,17 @@ Speedtronic is an open-source PyTorch training framework. You bring your own `nn
 ## Install
 
 ```bash
+pip install speedtronic
+# optional logging integrations
+pip install 'speedtronic[logging]'
+```
+
+For a source checkout:
+
+```bash
 pip install -e .
 # dev tools (pytest, ruff)
 pip install -e '.[dev]'
-# optional logging integrations
-pip install -e '.[logging]'
 ```
 
 ## Quickstart (60 seconds)
