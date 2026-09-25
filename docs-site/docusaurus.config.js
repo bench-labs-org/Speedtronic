@@ -11,7 +11,11 @@ const config = {
   organizationName: 'bench-labs-org',
   projectName: 'Speedtronic',
   trailingSlash: false,
-  onBrokenLinks: 'throw',
+  // Docusaurus resolves links against routes only, so it cannot see files in
+  // static/ (such as the documentation PDF). Keep it at 'warn' and let
+  // scripts/validate_production.py enforce a stricter rule that also verifies
+  // static assets actually exist on disk.
+  onBrokenLinks: 'warn',
   onBrokenAnchors: 'warn',
   markdown: {
     mermaid: true,
@@ -45,6 +49,7 @@ const config = {
       items: [
         {type: 'docSidebar', sidebarId: 'documentation', position: 'left', label: 'Documentation'},
         {to: '/docs/reference/source-inventory', label: 'Source inventory', position: 'left'},
+        {href: '/pdf/speedtronic-documentation.pdf', label: 'PDF', position: 'right'},
         {href: 'https://github.com/bench-labs-org/Speedtronic', label: 'Repository', position: 'right'},
       ],
     },
@@ -57,6 +62,12 @@ const config = {
             {label: 'Quickstart', to: '/docs/getting-started/quickstart'},
             {label: 'Architecture', to: '/docs/reference/architecture'},
             {label: 'Configuration', to: '/docs/reference/configuration'},
+          ],
+        },
+        {
+          title: 'Download',
+          items: [
+            {label: 'Documentation PDF', href: '/pdf/speedtronic-documentation.pdf'},
           ],
         },
         {

@@ -94,6 +94,29 @@ Validate a config without training:
 speedtronic validate --config configs/smoke.yaml
 ```
 
+## PDF documentation
+
+The full documentation is also available as a single print-ready PDF
+(Letter, ~257 pages, with a linked table of contents, running headers, page
+numbers, and rendered Mermaid diagrams):
+
+```text
+docs-site/static/pdf/speedtronic-documentation.pdf
+```
+
+It is rebuilt from the Docusaurus site with a headless browser, so the PDF can
+never drift from the site content:
+
+```bash
+cd docs-site
+npm ci
+python -m pip install playwright pymupdf
+python -m playwright install chromium
+npm run build && npm run build:pdf
+```
+
+The PDF is also served from the docs site at `/pdf/speedtronic-documentation.pdf`.
+
 ## Agent skill
 
 The full documentation is also packaged as an

@@ -13,6 +13,8 @@
     "generate:inventory": "python3 scripts/generate_source_inventory.py",
     "validate:coverage": "python3 scripts/validate_coverage.py",
     "validate:production": "python3 scripts/validate_production.py",
+    "build:pdf": "python3 scripts/build_pdf.py",
+    "build:all": "npm run build && npm run build:pdf",
     "prebuild": "npm run generate:inventory && npm run validate:coverage",
     "postbuild": "npm run validate:production"
   },

@@ -60,23 +60,23 @@ flowchart TD
 ## One global optimizer step
 
 ```mermaid
-flowchart LR
-  A["K = target / micro batch"] --> B["Next microbatch"]
-  B --> C["Move tensors to device"]
-  C --> D["Enter autocast context"]
-  D --> E["Forward and resolve loss"]
-  E --> F["Backward loss / K"]
-  F --> G{"Final microbatch?"}
-  G -->|No| B
-  G -->|Yes| H["Optional unscale and clip"]
-  H --> I["AdamW step"]
-  I --> J["Scheduler step"]
-  J --> K["Optional coordinator boundary"]
-  K --> L["Metric event"]
-  L --> M{"Checkpoint interval?"}
-  M -->|No| N["Next global step"]
-  M -->|Yes| O["Atomic checkpoint"]
-  O --> N
+flowchart TD
+  A["<b>Microbatch loop</b><br/>K = target / micro batch<br/>forward pass, backward of loss / K"]
+  B{"All K microbatches done?"}
+  C["<b>Optimizer update</b><br/>optional unscale + clip<br/>AdamW step, scheduler step<br/>coordinator boundary"]
+  D["<b>Emit</b><br/>metric event"]
+  E{"Checkpoint interval?"}
+  F["Atomic checkpoint"]
+  G["Next global step"]
+  A --> B
+  B -->|No| A
+  B -->|Yes| C
+  C --> D
+  D --> E
+  E -->|No| G
+  E -->|Yes| F
+  F --> G
+  G --> A
 ```
 
 ### Ordering guarantees

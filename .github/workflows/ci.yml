@@ -47,6 +47,47 @@ jobs:
       - name: Check working tree
         run: git diff --exit-code -- docs-site/docs/reference/generated-source-inventory.md
 
+  pdf:
+    name: Documentation PDF
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          npm ci --prefix docs-site
+          python -m pip install playwright pymupdf
+          python -m playwright install --with-deps chromium
+      - name: Build site and PDF
+        run: |
+          npm run build --prefix docs-site
+          python docs-site/scripts/build_pdf.py
+      - name: Validate PDF
+        run: |
+          python - <<'PY'
+          import pathlib, pymupdf
+          pdf = pathlib.Path("docs-site/static/pdf/speedtronic-documentation.pdf")
+          assert pdf.is_file(), "PDF was not produced"
+          assert pdf.stat().st_size > 200_000, "PDF is suspiciously small"
+          with pymupdf.open(pdf) as doc:
+              assert doc.page_count > 50, f"only {doc.page_count} pages"
+              text = " ".join(doc[i].get_text() for i in range(doc.page_count))
+          for needle in ("Speedtronic Documentation", "Local quickstart",
+                         "DumbDiLoCo", "Muon", "Glossary"):
+              assert needle in text, f"missing section: {needle}"
+          print(f"PDF OK: {doc.page_count} pages, {pdf.stat().st_size // 1024} KB")
+          PY
+      - name: Check working tree
+        run: git diff --exit-code -- docs-site/docs/reference/generated-source-inventory.md
+
   package:
     name: Distribution checks
     runs-on: ubuntu-latest
