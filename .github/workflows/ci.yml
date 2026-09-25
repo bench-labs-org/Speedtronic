@@ -64,3 +64,33 @@ jobs:
         run: |
           twine check dist/*
           check-wheel-contents dist/*.whl
+
+  skill:
+    name: Agent skill
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install validator
+        run: python -m pip install skills-ref
+      - name: Validate skill against the Agent Skills spec
+        run: agentskills validate skills/speedtronic
+      - name: Check size budget and internal links
+        run: |
+          python - <<'PY'
+          import pathlib, re, sys
+          root = pathlib.Path("skills/speedtronic")
+          skill = root / "SKILL.md"
+          lines = skill.read_text(encoding="utf-8").splitlines()
+          if len(lines) > 500:
+              sys.exit(f"SKILL.md is {len(lines)} lines; progressive disclosure budget is 500")
+          blob = "\n".join(p.read_text(encoding="utf-8") for p in sorted((root / "references").glob("*.md")))
+          targets = set(re.findall(r"\]\((references/[a-z0-9-]+\.md)\)", blob + skill.read_text(encoding="utf-8")))
+          missing = [t for t in sorted(targets) if not (root / t).exists()]
+          if missing:
+              sys.exit("broken skill links: " + ", ".join(missing))
+          print(f"SKILL.md {len(lines)} lines, {len(targets)} reference links OK")
+          PY

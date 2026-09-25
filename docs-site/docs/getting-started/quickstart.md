@@ -149,7 +149,11 @@ print(result.steps, result.samples, result.tokens, result.final_loss)
 
 :::tip Configure the scheduler horizon explicitly
 
-`SchedulerConfig.max_steps` defaults to 1000. Programmatic overrides of the run target do not reliably rewrite that default. Set `scheduler.max_steps` explicitly or use the CLI's `--max-steps`, which updates both values.
+`SchedulerConfig.max_steps` defaults to 1000. When a shorter `run.max_steps` is
+set and the scheduler is left at that default, Speedtronic 2.0 automatically
+adopts the run target so the schedule ends with training. Set
+`scheduler.max_steps` explicitly when you want a horizon that differs from the
+run target.
 
 :::
 

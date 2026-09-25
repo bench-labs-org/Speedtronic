@@ -94,6 +94,26 @@ Validate a config without training:
 speedtronic validate --config configs/smoke.yaml
 ```
 
+## Agent skill
+
+The full documentation is also packaged as an
+[Agent Skill](https://agentskills.io) so coding agents can load it on demand:
+
+```text
+skills/speedtronic/
+├── SKILL.md          # entry point, config/CLI/optimizer essentials
+└── references/       # 18 topic-focused reference files
+```
+
+`SKILL.md` stays small (progressive disclosure) and routes to `references/`
+for detail. Copy or symlink `skills/speedtronic` into your agent's skills
+directory, e.g. `.claude/skills/speedtronic/`, then validate it with:
+
+```bash
+pip install skills-ref
+agentskills validate skills/speedtronic
+```
+
 Same run from Python:
 
 ```python
