@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import html
 import re
+import shutil
 import sys
 import time
 from datetime import date
@@ -420,6 +421,15 @@ def run(args) -> None:
         finally:
             temp.unlink(missing_ok=True)
         browser.close()
+
+    # The PDF is authored in static/ (the Docusaurus source of truth) but the
+    # deployed artifact is build/. Mirroring it here means `build:pdf` can run
+    # after `build` without needing a second full build, and a stale copy can
+    # never be published by accident.
+    if (BUILD / "index.html").exists():
+        deployed = BUILD / "pdf" / args.output.name
+        deployed.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(args.output, deployed)
 
     size_kb = args.output.stat().st_size / 1024
     print(f"\nwrote {args.output} ({size_kb:.0f} KB, {len(pages)} pages, {diagrams} diagrams)")
