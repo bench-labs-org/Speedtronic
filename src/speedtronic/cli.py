@@ -37,9 +37,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         config = SpeedtronicConfig.load(args.config)
         if args.command == "validate":
             rendered = (
-                json.dumps(config.to_dict(), indent=2)
+                json.dumps(config.to_dict(redact_secrets=True), indent=2)
                 if args.format == "json"
-                else config.to_yaml()
+                else config.to_yaml(redact_secrets=True)
             )
             print(rendered)
             return 0

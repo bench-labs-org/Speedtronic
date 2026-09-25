@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from torch.utils.data import DataLoader, Dataset, IterableDataset
+from torch.utils.data import DataLoader, Dataset, IterableDataset, get_worker_info
 
 
 class CharTokenizer:
@@ -102,6 +102,10 @@ class TextFileTokenDataset(IterableDataset[dict[str, torch.Tensor]]):
 
     def __iter__(self) -> Iterator[dict[str, torch.Tensor]]:
         carry: list[int] = []
+        worker = get_worker_info()
+        worker_id = worker.id if worker is not None else 0
+        worker_count = worker.num_workers if worker is not None else 1
+        block_index = 0
         with self.path.open("r", encoding="utf-8") as handle:
             while True:
                 chunk = handle.read(self.block_size * 4)
@@ -114,11 +118,13 @@ class TextFileTokenDataset(IterableDataset[dict[str, torch.Tensor]]):
                 # Keep one token for the input/target shift.
                 complete = (len(combined) // (self.block_size + 1)) * (self.block_size + 1)
                 for start in range(0, complete, self.block_size + 1):
-                    block = combined[start : start + self.block_size + 1]
-                    tensor = torch.tensor(block, dtype=torch.long)
-                    yield {"input_ids": tensor[:-1], "labels": tensor[1:]}
+                    if block_index % worker_count == worker_id:
+                        block = combined[start : start + self.block_size + 1]
+                        tensor = torch.tensor(block, dtype=torch.long)
+                        yield {"input_ids": tensor[:-1], "labels": tensor[1:]}
+                    block_index += 1
                 carry = combined[complete:]
-        if len(carry) >= 2:
+        if len(carry) >= 2 and block_index % worker_count == worker_id:
             # Keep a short final block; collate_causal pads it and marks the
             # padded positions as ignored rather than training on fake tokens.
             block = torch.tensor(carry, dtype=torch.long)

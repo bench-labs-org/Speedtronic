@@ -1,0 +1,10 @@
+node_modules/
+.npm/
+.wrangler/
+.dev.vars
+.dev.vars.*
+build/
+.docusaurus/
+.cache-loader/
+*.log
+npm-debug.log*

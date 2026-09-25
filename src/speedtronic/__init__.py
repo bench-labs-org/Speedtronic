@@ -14,12 +14,30 @@ from .config import (
     PrecisionConfig,
     RunConfig,
     SchedulerConfig,
+    ShapeValidationConfig,
     SpeedtronicConfig,
     load_config,
     load_yaml_config,
 )
 from .module_utils import set_gradient_checkpointing
+from .optimizers import (
+    CautiousOptimizer,
+    HybridOptimizer,
+    Muon,
+    ParameterRouting,
+    newton_schulz,
+    post_polar_normalize,
+    route_parameters,
+)
 from .registry import ModelRegistry, build_model, register_model, registry
+from .scheduling import StageInfo, StageStreamScheduler
+from .shapes import (
+    ShapeProfile,
+    ShapeReport,
+    ShapeWarning,
+    resolve_shape_profile,
+    validate_startup_shapes,
+)
 
 __all__ = [
     "CheckpointConfig",
@@ -33,9 +51,24 @@ __all__ = [
     "PrecisionConfig",
     "RunConfig",
     "SchedulerConfig",
+    "ShapeValidationConfig",
     "SpeedtronicConfig",
     "Trainer",
     "TrainResult",
+    "CautiousOptimizer",
+    "HybridOptimizer",
+    "Muon",
+    "ParameterRouting",
+    "ShapeProfile",
+    "ShapeReport",
+    "ShapeWarning",
+    "StageInfo",
+    "StageStreamScheduler",
+    "newton_schulz",
+    "post_polar_normalize",
+    "resolve_shape_profile",
+    "route_parameters",
+    "validate_startup_shapes",
     "ModelRegistry",
     "build_model",
     "load_config",
@@ -51,7 +84,7 @@ __all__ = [
     "HubClient",
 ]
 
-__version__ = "0.1.0"
+__version__ = "2.0.0"
 
 
 def __getattr__(name: str):

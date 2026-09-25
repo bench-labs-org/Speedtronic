@@ -300,12 +300,15 @@ class ReferenceTransformer(nn.Module):
             if labels.ndim != 2 or labels.shape[0] != input_ids.shape[0]:
                 raise ValueError("labels must have shape (batch, sequence)")
             if labels.shape[1] == seq_len:
-                shift_labels = labels[:, 1:].contiguous()
+                # Speedtronic datasets already provide one next-token label for
+                # every input position, so the full logit row is aligned.
+                shift_labels = labels
+                shift_logits = logits.contiguous()
             elif labels.shape[1] == seq_len - 1:
                 shift_labels = labels
+                shift_logits = logits[:, :-1, :].contiguous()
             else:
                 raise ValueError("labels must have sequence length or sequence length - 1")
-            shift_logits = logits[:, :-1, :].contiguous()
             if shift_labels.numel() == 0 or not torch.any(shift_labels != -100):
                 output["loss"] = logits.sum() * 0.0
             else:

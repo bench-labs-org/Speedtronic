@@ -1,0 +1,18 @@
+{
+  "name": "speedtronic-site-tooling",
+  "private": true,
+  "version": "2.0.0",
+  "description": "Documentation and Cloudflare Pages tooling for Speedtronic",
+  "scripts": {
+    "docs:install": "npm --prefix docs-site ci",
+    "docs:build": "npm --prefix docs-site run build",
+    "docs:serve": "npm --prefix docs-site run serve:python",
+    "pages:deploy": "npm run docs:build && wrangler pages deploy docs-site/build --project-name speedtronic-docs --branch main"
+  },
+  "devDependencies": {
+    "wrangler": "^4.140.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

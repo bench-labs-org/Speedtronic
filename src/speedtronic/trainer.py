@@ -13,6 +13,8 @@ from .checkpoint import CheckpointManager, capture_rng_state, restore_rng_state
 from .data import infinite_batches
 from .precision import PrecisionPlan, autocast_context, make_grad_scaler, resolve_precision
 from .profiling import MetricLogger
+from .scheduling import StageStreamScheduler
+from .shapes import ShapeReport, validate_startup_shapes
 
 
 class SyncCoordinator(Protocol):
@@ -61,6 +63,7 @@ class Trainer:
         coordinator: SyncCoordinator | None = None,
         max_steps: int | None = None,
         start_step: int = 0,
+        shape_report: ShapeReport | None = None,
     ) -> None:
         if isinstance(config, dict):
             from .config import SpeedtronicConfig
@@ -91,6 +94,10 @@ class Trainer:
         self._started = False
         self._deferred_coordinator_state: dict[str, Any] | None = None
         self._deferred_scaler_state: dict[str, Any] | None = None
+        self._last_checkpoint_step = -1
+        self.shape_report = shape_report
+        self._shape_validated = shape_report is not None
+        self._ooo_scheduler: StageStreamScheduler | None = None
         self._configure_features()
 
     @property
@@ -117,6 +124,30 @@ class Trainer:
                 )
         if bool(getattr(self.config, "compile", False)):
             self._enable_compile()
+        self._setup_ooo_backprop()
+
+    def _setup_ooo_backprop(self) -> None:
+        if not bool(getattr(self.config, "ooo_backprop", False)):
+            return
+        if self._compiled:
+            self.logger.warning(
+                "ooo_backprop is disabled when compile is enabled; "
+                "use one scheduling mode at a time"
+            )
+            self.logger.emit(
+                "ooo_backprop",
+                {"enabled": False, "reason": "compile is enabled"},
+            )
+            return
+        if self._ooo_scheduler is not None:
+            return
+        self._ooo_scheduler = StageStreamScheduler(
+            self.model,
+            self.device,
+            num_streams=int(getattr(self.config, "ooo_streams", 4)),
+            logger=self.logger,
+        )
+        self.logger.emit("ooo_backprop", self._ooo_scheduler.as_dict())
 
     def _enable_compile(self) -> None:
         try:
@@ -168,13 +199,15 @@ class Trainer:
         if labels.ndim != 2 or labels.shape[0] != logits.shape[0]:
             return None
         if labels.shape[1] == logits.shape[1]:
-            labels = labels[:, 1:]
-        if labels.shape[1] != logits.shape[1] - 1:
+            aligned_logits = logits
+        elif labels.shape[1] == logits.shape[1] - 1:
+            aligned_logits = logits[:, :-1]
+        else:
             return None
         if labels.numel() == 0 or not torch.any(labels != -100):
             return logits.sum() * 0.0
         return F.cross_entropy(
-            logits[:, :-1].reshape(-1, logits.shape[-1]),
+            aligned_logits.reshape(-1, aligned_logits.shape[-1]),
             labels.reshape(-1),
             ignore_index=-100,
         )
@@ -252,14 +285,17 @@ class Trainer:
                 if grad_clip is not None:
                     scaler.unscale_(self.optimizer)
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip)
+                scale_before = scaler.get_scale()
                 scaler.step(self.optimizer)
                 scaler.update()
+                self._last_step_applied = scaler.get_scale() >= scale_before
             else:
                 backward_loss.backward()
                 grad_clip = getattr(getattr(self.config, "optimizer", None), "grad_clip", None)
                 if grad_clip is not None:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), grad_clip)
                 self.optimizer.step()
+                self._last_step_applied = True
             self.optimizer.zero_grad(set_to_none=True)
             return loss_value
         if scaler is not None:
@@ -273,10 +309,12 @@ class Trainer:
         if reset:
             self.optimizer.state.clear()
 
-    def _checkpoint(self) -> None:
+    def _checkpoint(self, *, force: bool = False) -> None:
         if self.checkpoint_manager is None or not self.checkpoint_manager.enabled:
             return
-        if not self.checkpoint_manager.should_save(self.step):
+        if not force and not self.checkpoint_manager.should_save(self.step):
+            return
+        if self._last_checkpoint_step == self.step:
             return
         state = {
             "model": self.model.state_dict(),
@@ -298,6 +336,7 @@ class Trainer:
             },
         }
         path = self.checkpoint_manager.save(self.step, state)
+        self._last_checkpoint_step = self.step
         self.logger.emit("checkpoint", {"step": self.step, "path": str(path)})
 
     def resume(self, state: dict[str, Any]) -> None:
@@ -312,10 +351,14 @@ class Trainer:
         self.samples = int(state.get("samples", self.samples))
         self.tokens = int(state.get("tokens", self.tokens))
         if self.coordinator is not None and state.get("coordinator") is not None:
-            # The coordinator may not have contacted Hub yet.  Defer applying
-            # its state until fit() has started it, otherwise startup could
-            # overwrite a resumed baseline with a fresh remote download.
-            self._deferred_coordinator_state = state["coordinator"]
+            # Stage coordinator state before startup performs any remote read.
+            # v2 coordinators can then preserve the model/baseline pair.
+            prepare = getattr(self.coordinator, "prepare_state", None)
+            if callable(prepare):
+                prepare(state["coordinator"])
+                self._deferred_coordinator_state = None
+            else:
+                self._deferred_coordinator_state = state["coordinator"]
         restore_rng_state(state.get("rng"))
 
     def fit(self, max_steps: int | None = None) -> TrainResult:
@@ -323,8 +366,16 @@ class Trainer:
         if step_limit <= 0:
             raise ValueError("max_steps must be positive")
         self.model.to(self.device)
+        self.model.train()
+        self._setup_ooo_backprop()
+        if self.config is not None and not self._shape_validated:
+            self.shape_report = validate_startup_shapes(
+                self.config, self.model, self.device, self.precision, logger=self.logger
+            )
+            self._shape_validated = True
         self._active_model = self._compiled_model() if self._compiled else self.model
         self._scaler = make_grad_scaler(self.precision)
+        self._last_step_applied = True
         if self._scaler is not None and self._deferred_scaler_state is not None:
             self._scaler.load_state_dict(self._deferred_scaler_state)
             self._deferred_scaler_state = None
@@ -355,27 +406,52 @@ class Trainer:
                 "precision": self.precision.mode,
                 "accumulation_steps": self.accumulation_steps,
                 "parameters": sum(p.numel() for p in self.model.parameters()),
+                "shape_alignment": (
+                    self.shape_report.profile.alignment if self.shape_report is not None else None
+                ),
+                "shape_warning_count": (
+                    self.shape_report.warning_count if self.shape_report is not None else 0
+                ),
+                "ooo_backprop": (
+                    self._ooo_scheduler.as_dict() if self._ooo_scheduler is not None else None
+                ),
             },
         )
         try:
             while self.step < target_step:
                 loss_total = 0.0
                 batch_count = 0
+                step_samples = 0
+                step_tokens = 0
                 for micro_index in range(self.accumulation_steps):
                     batch = self._move_batch(next(batches))
                     size, tokens = self._batch_size_and_tokens(batch)
-                    self.samples += size
-                    self.tokens += tokens
-                    with autocast_context(self.precision, self.device):
-                        loss, _ = self._forward_with_compile_fallback(batch)
-                        if loss.ndim != 0:
-                            loss = loss.mean()
+                    step_samples += size
+                    step_tokens += tokens
+                    if self._ooo_scheduler is not None:
+                        self._ooo_scheduler.begin()
+                    try:
+                        with autocast_context(self.precision, self.device):
+                            loss, _ = self._forward_with_compile_fallback(batch)
+                    finally:
+                        if self._ooo_scheduler is not None:
+                            self._ooo_scheduler.finish()
+                    if loss.ndim != 0:
+                        loss = loss.mean()
                     loss_total += self._optimizer_step(
                         loss,
                         micro_index == self.accumulation_steps - 1,
                         loss_scale=1.0 / self.accumulation_steps,
                     )
                     batch_count += 1
+                if not self._last_step_applied:
+                    self.logger.emit(
+                        "optimizer_step_skipped",
+                        {"step": self.step + 1, "reason": "grad_scaler_overflow"},
+                    )
+                    continue
+                self.samples += step_samples
+                self.tokens += step_tokens
                 self.step += 1
                 if self.scheduler is not None:
                     self.scheduler.step()
@@ -405,6 +481,12 @@ class Trainer:
         finally:
             if self.coordinator is not None:
                 self.coordinator.stop()
+                self._started = False
+            if self._ooo_scheduler is not None:
+                self._ooo_scheduler.dispose()
+                self._ooo_scheduler = None
+        if self.step > 0:
+            self._checkpoint(force=True)
         elapsed = time.perf_counter() - started
         result = TrainResult(
             steps=self.step,

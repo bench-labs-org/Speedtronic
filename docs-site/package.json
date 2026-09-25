@@ -1,0 +1,33 @@
+{
+  "name": "speedtronic-docs",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Comprehensive Docusaurus documentation for Speedtronic 2.0.0",
+  "scripts": {
+    "docusaurus": "docusaurus",
+    "start": "docusaurus start",
+    "build": "docusaurus build",
+    "serve": "docusaurus serve",
+    "serve:python": "python3 serve.py",
+    "clear": "docusaurus clear",
+    "generate:inventory": "python3 scripts/generate_source_inventory.py",
+    "validate:coverage": "python3 scripts/validate_coverage.py",
+    "validate:production": "python3 scripts/validate_production.py",
+    "prebuild": "npm run generate:inventory && npm run validate:coverage",
+    "postbuild": "npm run validate:production"
+  },
+  "dependencies": {
+    "@docusaurus/core": "3.10.2",
+    "@docusaurus/preset-classic": "3.10.2",
+    "@docusaurus/theme-mermaid": "3.10.2",
+    "@mdx-js/react": "^3.0.0",
+    "@mermaid-js/layout-elk": "^0.1.9",
+    "clsx": "^2.0.0",
+    "prism-react-renderer": "^2.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "engines": {
+    "node": ">=20.0"
+  }
+}

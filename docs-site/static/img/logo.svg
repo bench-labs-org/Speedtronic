@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Speedtronic logo">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6d91ff"/>
+      <stop offset="1" stop-color="#7b42f6"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="#0b1020"/>
+  <path d="M15 39c10-2 13-15 20-15 6 0 7 8 14 8 2 0 4-.6 6-2" fill="none" stroke="url(#g)" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="16" cy="39" r="4" fill="#79a0ff"/>
+  <circle cx="49" cy="30" r="4" fill="#a970ff"/>
+</svg>

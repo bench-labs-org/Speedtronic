@@ -1,6 +1,6 @@
 """DumbDiLoCo public API."""
 
-from .diloco import DumbDiLoCo, DumbDiLoCoCoordinator, SyncResult
+from .diloco import DeltaUploadJob, DumbDiLoCo, DumbDiLoCoCoordinator, SyncResult
 from .hub import GlobalMetadata, HubClient, HubError, HubTransport, HubUnavailable
 from .outer import MasterOuterLoop, NesterovOuterOptimizer
 from .tensors import (
@@ -14,6 +14,7 @@ from .tensors import (
 __all__ = [
     "DumbDiLoCo",
     "DumbDiLoCoCoordinator",
+    "DeltaUploadJob",
     "GlobalMetadata",
     "HubClient",
     "HubError",

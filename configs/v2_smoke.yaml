@@ -1,0 +1,48 @@
+# CPU-safe smoke configuration for the v2 optimizer and systems features.
+name: v2-smoke
+seed: 1234
+max_steps: 2
+output_dir: runs/v2-smoke
+model:
+  name: reference_transformer
+  vocab_size: 64
+  max_seq_len: 16
+  n_layer: 1
+  n_head: 4
+  n_kv_head: 2
+  d_model: 32
+  d_ff: 64
+data:
+  synthetic: true
+  num_tokens: 128
+  block_size: 16
+  micro_batch_size: 1
+  target_batch_size: 2
+optimizer:
+  name: muon
+  lr: 0.0003
+  weight_decay: 0.01
+  muon_plus: true
+  cautious: true
+  muon_momentum: 0.95
+  muon_ns_steps: 5
+shape_validation:
+  enabled: true
+  alignment: auto
+ooo_backprop: true
+ooo_streams: 2
+precision:
+  mode: fp32
+compile: false
+checkpoint:
+  enabled: true
+  directory: checkpoints
+  every_steps: 1
+  keep_last: 2
+distributed:
+  enabled: false
+  async_delta_upload: true
+  async_global_poll: true
+logging:
+  level: INFO
+  every_steps: 1

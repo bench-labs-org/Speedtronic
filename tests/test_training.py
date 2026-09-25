@@ -106,10 +106,57 @@ def test_accumulation_scales_gradients_and_reports_mean_loss():
     assert result.final_loss == 2.0
 
 
-def test_runtime_builds_reference_model():
+class CountingCoordinator:
+    def __init__(self):
+        self.starts = 0
+        self.stops = 0
+
+    def start(self):
+        self.starts += 1
+
+    def after_optimizer_step(self, model, step):
+        return False
+
+    def stop(self):
+        self.stops += 1
+
+    def state_dict(self):
+        return None
+
+    def load_state_dict(self, state):
+        return None
+
+
+def test_repeated_fit_restarts_coordinator_lifecycle(tmp_path):
+    config = SpeedtronicConfig.from_dict(
+        {"run": {"max_steps": 1, "device": "cpu", "output_dir": str(tmp_path)}}
+    )
+    model = TinyLM()
+    optimizer = build_optimizer(model, config, torch.device("cpu"))
+    batches = [
+        {"input_ids": torch.randint(0, 32, (1, 4)), "labels": torch.randint(0, 32, (1, 4))}
+        for _ in range(4)
+    ]
+    coordinator = CountingCoordinator()
+    trainer = Trainer(
+        model,
+        optimizer,
+        batches,
+        device="cpu",
+        config=config,
+        coordinator=coordinator,
+        max_steps=1,
+    )
+    trainer.fit()
+    trainer.fit(max_steps=2)
+    assert coordinator.starts == 2
+    assert coordinator.stops == 2
+
+
+def test_runtime_builds_reference_model(tmp_path):
     config = SpeedtronicConfig.from_dict(
         {
-            "run": {"max_steps": 1, "device": "cpu", "output_dir": "/tmp/speedtronic-test"},
+            "run": {"max_steps": 1, "device": "cpu", "output_dir": str(tmp_path)},
             "model": {"vocab_size": 32, "max_seq_len": 8, "n_layer": 1, "n_head": 4, "d_model": 32},
             "data": {"block_size": 8, "num_tokens": 32},
         }

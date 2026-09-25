@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#090d1a"/>
+      <stop offset="1" stop-color="#17113d"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6691ff"/>
+      <stop offset="1" stop-color="#a56bff"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" rx="36" fill="url(#bg)"/>
+  <text x="90" y="245" fill="#f5f7ff" font-size="86" font-family="system-ui,sans-serif" font-weight="700">Speedtronic</text>
+  <text x="94" y="315" fill="#aebbe2" font-size="34" font-family="system-ui,sans-serif">GPU-agnostic PyTorch training, documented from source.</text>
+  <path d="M95 410 C260 380 305 300 440 310 S610 420 760 350 S950 280 1110 325" fill="none" stroke="url(#line)" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="95" cy="410" r="20" fill="#6691ff"/>
+  <circle cx="1110" cy="325" r="20" fill="#a56bff"/>
+</svg>

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,8 +62,13 @@ class MetricLogger:
             Path(self.json_file).parent.mkdir(parents=True, exist_ok=True)
         self.hooks = self.hooks or []
         self._start = time.perf_counter()
+        self._emit_lock = threading.RLock()
 
     def emit(self, event: str, payload: Metric) -> None:
+        with self._emit_lock:
+            self._emit_locked(event, payload)
+
+    def _emit_locked(self, event: str, payload: Metric) -> None:
         safe = dict(payload)
         safe.setdefault("elapsed_s", time.perf_counter() - self._start)
         memory = safe.get("memory_bytes")
@@ -104,12 +110,13 @@ class MetricLogger:
         self._logger.error(message, *args)
 
     def close(self) -> None:
-        for handler in list(self._logger.handlers):
-            if getattr(handler, "_speedtronic", False):
-                handler.flush()
-                if isinstance(handler, logging.FileHandler):
-                    handler.close()
-                self._logger.removeHandler(handler)
+        with self._emit_lock:
+            for handler in list(self._logger.handlers):
+                if getattr(handler, "_speedtronic", False):
+                    handler.flush()
+                    if isinstance(handler, logging.FileHandler):
+                        handler.close()
+                    self._logger.removeHandler(handler)
 
 
 def _format_metrics(metrics: Metric) -> str:

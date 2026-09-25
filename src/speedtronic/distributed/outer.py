@@ -186,38 +186,48 @@ class MasterOuterLoop:
         return load_delta(downloaded)
 
     def sync_once(self) -> int:
-        """Run one outer round and return the resulting outer step."""
+        """Run one outer round and return the resulting outer step.
+
+        Hub listing and downloads happen outside the state lock.  Only the
+        short in-memory commit and local-state write are serialized, so a
+        training-thread checkpoint never waits for a network round trip.
+        """
 
         with self._lock:
-            candidates = self._delta_candidates()
-            valid: list[tuple[tuple[str, int, int], dict[str, torch.Tensor], str]] = []
-            for node_id, local_step, _provisional, path in candidates:
-                try:
-                    delta, metadata = self._download_delta(path)
-                    base_step = int(metadata.get("base_outer_step", -1))
-                    identity = (node_id, local_step, base_step)
-                    if identity in self.processed_deltas:
-                        continue
-                    # Validate shape/key compatibility before aggregation.
-                    expected = {
-                        key
-                        for key, value in self.global_state.items()
-                        if value.is_floating_point() or value.is_complex()
-                    }
-                    if set(delta) != expected:
-                        raise ValueError("delta keys do not match floating-point global state")
-                    for key, value in delta.items():
-                        if tuple(value.shape) != tuple(self.global_state[key].shape):
-                            raise ValueError(f"shape mismatch for {key}")
-                    valid.append((identity, delta, path))
-                except Exception as exc:
-                    self.logger.warning("skipping unreadable delta %s: %s", path, exc)
-            if not valid:
-                self._emit_outer_event(len(candidates), 0)
+            processed = set(self.processed_deltas)
+            expected = {
+                key
+                for key, value in self.global_state.items()
+                if value.is_floating_point() or value.is_complex()
+            }
+            shapes = {key: tuple(value.shape) for key, value in self.global_state.items()}
+
+        candidates = self._delta_candidates()
+        valid: list[tuple[tuple[str, int, int], dict[str, torch.Tensor], str]] = []
+        for node_id, local_step, _provisional, path in candidates:
+            try:
+                delta, metadata = self._download_delta(path)
+                base_step = int(metadata.get("base_outer_step", -1))
+                identity = (node_id, local_step, base_step)
+                if identity in processed:
+                    continue
+                # Validate shape/key compatibility before aggregation.
+                if set(delta) != expected:
+                    raise ValueError("delta keys do not match floating-point global state")
+                for key, value in delta.items():
+                    if tuple(value.shape) != shapes[key]:
+                        raise ValueError(f"shape mismatch for {key}")
+                valid.append((identity, delta, path))
+            except Exception as exc:
+                self.logger.warning("skipping unreadable delta %s: %s", path, exc)
+        if not valid:
+            self._emit_outer_event(len(candidates), 0)
+            with self._lock:
                 return self.outer_step
 
-            # Do not include a provisional -1 identity in the final state.
-            average = average_deltas([item[1] for item in valid])
+        # Do not include a provisional -1 identity in the final state.
+        average = average_deltas([item[1] for item in valid])
+        with self._lock:
             old_step = self.outer_step
             old_processed = set(self.processed_deltas)
             old_global = {key: value.clone() for key, value in self.global_state.items()}
@@ -225,30 +235,37 @@ class MasterOuterLoop:
             self.optimizer.step(self.global_state, average)
             self.outer_step += 1
             self.processed_deltas.update(item[0] for item in valid)
-            try:
-                self.hub.publish_global(
-                    self.global_state,
-                    outer_step=self.outer_step,
-                    work_dir=self.state_dir / "outgoing",
-                    metadata_extra={"algorithm": "dumb_diloco", "optimizer": "nesterov_sgd"},
-                )
-                self._save_local_state()
-            except Exception:
-                # Do not mark a failed publication as processed.  Restore the
-                # complete outer state so a retry applies the delta exactly
-                # once, including momentum.
+            candidate_global = {key: value.clone() for key, value in self.global_state.items()}
+            candidate_step = self.outer_step
+
+        try:
+            # Network I/O is intentionally outside self._lock.
+            self.hub.publish_global(
+                candidate_global,
+                outer_step=candidate_step,
+                work_dir=self.state_dir / "outgoing",
+                metadata_extra={"algorithm": "dumb_diloco", "optimizer": "nesterov_sgd"},
+            )
+        except Exception:
+            # Do not mark a failed publication as processed.  Restore the
+            # complete outer state so a retry applies the delta exactly once.
+            with self._lock:
                 self.global_state = old_global
                 self.outer_step = old_step
                 self.processed_deltas = old_processed
                 self.optimizer.load_state_dict(old_momentum)
-                raise
-            if self.on_global_update is not None:
-                self.on_global_update(
-                    {key: value.clone() for key, value in self.global_state.items()},
-                    self.outer_step,
-                )
-            self._emit_outer_event(len(candidates), len(valid))
-            return self.outer_step
+            raise
+        try:
+            with self._lock:
+                self._save_local_state()
+        except Exception as exc:
+            # Publication already succeeded; rolling back here would reapply
+            # the same deltas on the next round and diverge from the Hub.
+            self.logger.warning("published global but could not persist local outer state: %s", exc)
+        if self.on_global_update is not None:
+            self.on_global_update(candidate_global, candidate_step)
+        self._emit_outer_event(len(candidates), len(valid))
+        return candidate_step
 
     def _emit_outer_event(self, found: int, valid: int) -> None:
         if hasattr(self.logger, "emit"):

@@ -14,9 +14,11 @@ from .checkpoint import CheckpointManager
 from .config import SpeedtronicConfig
 from .data import build_dataloader
 from .distributed import DumbDiLoCoCoordinator
-from .precision import resolve_device, resolve_precision, supports_fused_adamw
+from .optimizers import build_v2_optimizer
+from .precision import resolve_device, resolve_precision
 from .profiling import MetricLogger
 from .registry import build_model
+from .shapes import ShapeReport, validate_startup_shapes
 from .trainer import Trainer, TrainResult
 
 
@@ -35,24 +37,9 @@ def seed_everything(seed: int) -> None:
 
 
 def build_optimizer(model: torch.nn.Module, config: Any, device: Any) -> torch.optim.Optimizer:
-    optimizer_config = config.optimizer
-    fused = (
-        supports_fused_adamw(device)
-        if optimizer_config.fused is None
-        else bool(optimizer_config.fused)
-    )
-    kwargs: dict[str, Any] = {
-        "lr": optimizer_config.lr,
-        "betas": tuple(optimizer_config.betas),
-        "eps": optimizer_config.eps,
-        "weight_decay": optimizer_config.weight_decay,
-    }
-    if fused:
-        try:
-            return torch.optim.AdamW(model.parameters(), fused=True, **kwargs)
-        except (TypeError, RuntimeError, ValueError):
-            pass
-    return torch.optim.AdamW(model.parameters(), **kwargs)
+    """Build the configured AdamW, hybrid Muon, or cautious optimizer."""
+
+    return build_v2_optimizer(model, config, torch.device(device))
 
 
 def build_scheduler(
@@ -99,14 +86,14 @@ def build_runtime(
         config.validate()
     seed_everything(config.run.seed)
     resolved_device = resolve_device(device or config.run.device)
+    precision = resolve_precision(config.precision, resolved_device)
     model = build_model(config.model)
+    model.to(resolved_device)
     dataloader = build_dataloader(
         config.data,
         pin_memory_device=resolved_device.type == "cuda",
         vocab_size=config.model.vocab_size,
     )
-    optimizer = build_optimizer(model, config, resolved_device)
-    scheduler = build_scheduler(optimizer, config)
     checkpoint_directory = Path(config.checkpoint.directory)
     if not checkpoint_directory.is_absolute():
         checkpoint_directory = Path(config.run.output_dir) / checkpoint_directory
@@ -117,6 +104,11 @@ def build_runtime(
         enabled=config.checkpoint.enabled,
     )
     logger = build_logger(config)
+    shape_report: ShapeReport = validate_startup_shapes(
+        config, model, resolved_device, precision, logger=logger
+    )
+    optimizer = build_optimizer(model, config, resolved_device)
+    scheduler = build_scheduler(optimizer, config)
     coordinator = None
     if config.distributed.enabled:
         state_directory = Path(config.distributed.state_dir)
@@ -138,11 +130,12 @@ def build_runtime(
         device=resolved_device,
         config=config,
         scheduler=scheduler,
-        precision=resolve_precision(config.precision, resolved_device),
+        precision=precision,
         logger=logger,
         checkpoint_manager=checkpoint_manager,
         coordinator=coordinator,
         max_steps=effective_max_steps,
+        shape_report=shape_report,
     )
     if resume or config.checkpoint.resume:
         state = checkpoint_manager.load_latest()

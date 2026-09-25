@@ -116,10 +116,16 @@ class OptimizerConfig:
     weight_decay: float = 0.1
     fused: bool | None = None
     grad_clip: float | None = None
+    muon_plus: bool = False
+    cautious: bool = False
+    muon_momentum: float = 0.95
+    muon_ns_steps: int = 5
+    muon_norm_eps: float = 1e-8
 
     def __post_init__(self) -> None:
-        if self.name.lower() != "adamw":
-            raise ConfigError("v1 currently supports optimizer.name=adamw")
+        self.name = str(self.name).strip().lower()
+        if self.name not in {"adamw", "muon"}:
+            raise ConfigError("optimizer.name must be 'adamw' or 'muon'")
         if self.lr <= 0:
             raise ConfigError("optimizer.lr must be positive")
         if len(self.betas) != 2 or not all(0 <= b < 1 for b in self.betas):
@@ -128,6 +134,16 @@ class OptimizerConfig:
             raise ConfigError("optimizer eps must be positive and weight_decay non-negative")
         if self.grad_clip is not None and self.grad_clip <= 0:
             raise ConfigError("optimizer.grad_clip must be positive")
+        if not isinstance(self.muon_plus, bool) or not isinstance(self.cautious, bool):
+            raise ConfigError("optimizer Muon/cautious flags must be booleans")
+        if self.muon_plus and self.name != "muon":
+            raise ConfigError("optimizer.muon_plus is only valid with optimizer.name=muon")
+        if not 0 <= self.muon_momentum < 1:
+            raise ConfigError("optimizer.muon_momentum must be in [0, 1)")
+        if self.muon_ns_steps <= 0:
+            raise ConfigError("optimizer.muon_ns_steps must be positive")
+        if self.muon_norm_eps <= 0:
+            raise ConfigError("optimizer.muon_norm_eps must be positive")
 
 
 @dataclass
@@ -191,6 +207,42 @@ class LoggingConfig:
 
 
 @dataclass
+class ShapeValidationConfig:
+    enabled: bool = True
+    alignment: int | str = "auto"
+    check_batch: bool = True
+    check_sequence: bool = True
+    check_model: bool = True
+    check_vocab: bool = False
+    warn_on_cpu: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.enabled, bool):
+            raise ConfigError("shape_validation.enabled must be a boolean")
+        if isinstance(self.alignment, str):
+            self.alignment = self.alignment.strip().lower()
+            if self.alignment not in {"auto", "none"}:
+                raise ConfigError(
+                    "shape_validation.alignment must be 'auto', 'none', or a positive integer"
+                )
+        elif self.alignment is None:
+            self.alignment = "auto"
+        elif not isinstance(self.alignment, int) or isinstance(self.alignment, bool):
+            raise ConfigError("shape_validation.alignment must be 'auto' or a positive integer")
+        if isinstance(self.alignment, int) and self.alignment <= 0:
+            raise ConfigError("shape_validation.alignment must be positive")
+        for field_name in (
+            "check_batch",
+            "check_sequence",
+            "check_model",
+            "check_vocab",
+            "warn_on_cpu",
+        ):
+            if not isinstance(getattr(self, field_name), bool):
+                raise ConfigError(f"shape_validation.{field_name} must be a boolean")
+
+
+@dataclass
 class DistributedConfig:
     enabled: bool = False
     mode: str = "dumb_diloco"
@@ -209,6 +261,11 @@ class DistributedConfig:
     retry_max: float = 60.0
     retry_attempts: int = 6
     reset_inner_optimizer: bool = True
+    async_delta_upload: bool = True
+    delta_upload_queue_size: int = 1
+    delta_upload_overflow: str = "skip"
+    delta_upload_shutdown_timeout: float = 5.0
+    async_global_poll: bool = True
 
     def __post_init__(self) -> None:
         self.mode = str(self.mode).lower()
@@ -241,6 +298,20 @@ class DistributedConfig:
             raise ConfigError("distributed retry bounds are invalid")
         if self.retry_attempts < 1:
             raise ConfigError("distributed.retry_attempts must be positive")
+        for field_name in (
+            "reset_inner_optimizer",
+            "async_delta_upload",
+            "async_global_poll",
+        ):
+            if not isinstance(getattr(self, field_name), bool):
+                raise ConfigError(f"distributed.{field_name} must be a boolean")
+        if self.delta_upload_queue_size != 1:
+            raise ConfigError("distributed.delta_upload_queue_size must be 1 in v2")
+        self.delta_upload_overflow = str(self.delta_upload_overflow).lower()
+        if self.delta_upload_overflow != "skip":
+            raise ConfigError("distributed.delta_upload_overflow must be 'skip'")
+        if self.delta_upload_shutdown_timeout <= 0:
+            raise ConfigError("distributed.delta_upload_shutdown_timeout must be positive")
         if self.enabled and not self.repo_id:
             raise ConfigError("distributed.repo_id is required for DumbDiLoCo")
 
@@ -272,12 +343,19 @@ class SpeedtronicConfig:
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     distributed: DistributedConfig = field(default_factory=DistributedConfig)
+    shape_validation: ShapeValidationConfig = field(default_factory=ShapeValidationConfig)
     gradient_checkpointing: bool = False
     compile: bool = False
+    ooo_backprop: bool = False
+    ooo_streams: int = 4
 
     def __post_init__(self) -> None:
         if self.run.max_steps <= 0:
             raise ConfigError("run.max_steps must be positive")
+        if not isinstance(self.ooo_backprop, bool):
+            raise ConfigError("ooo_backprop must be a boolean")
+        if not 1 <= int(self.ooo_streams) <= 8:
+            raise ConfigError("ooo_streams must be between 1 and 8")
         if self.distributed.enabled and self.distributed.role == "single":
             self.distributed.role = "worker" if not self.distributed.repo_id else "master"
         if self.data.block_size is None:
@@ -289,6 +367,14 @@ class SpeedtronicConfig:
         if self.run.log_every is not None and self.logging.every_steps == 1:
             self.logging.every_steps = self.run.log_every
         if self.scheduler.max_steps <= 0:
+            self.scheduler.max_steps = self.run.max_steps
+        elif (
+            self.scheduler.max_steps == SchedulerConfig.max_steps
+            and self.run.max_steps != SchedulerConfig.max_steps
+        ):
+            # The historical default was 1000.  Keep the default schedule in
+            # sync with a shorter explicit run target unless the user supplied
+            # a different horizon after construction.
             self.scheduler.max_steps = self.run.max_steps
         if (
             self.data.max_steps is not None
@@ -382,8 +468,29 @@ class SpeedtronicConfig:
             values["distributed"] = values.pop("hub")
         if "diloco" in values and "distributed" not in values:
             values["distributed"] = values.pop("diloco")
+        optimizer_value = values.get("optimizer")
+        if isinstance(optimizer_value, str):
+            optimizer_value = {"name": optimizer_value}
+            values["optimizer"] = optimizer_value
+        optimizer_aliases = ("muon_plus", "cautious")
+        for alias in optimizer_aliases:
+            if alias not in values:
+                continue
+            if optimizer_value is None:
+                optimizer_value = {}
+            elif is_dataclass(optimizer_value) and not isinstance(optimizer_value, Mapping):
+                optimizer_value = asdict(optimizer_value)
+            if not isinstance(optimizer_value, Mapping):
+                raise ConfigError("optimizer must be a mapping or optimizer name string")
+            optimizer_value = dict(optimizer_value)
+            if alias in optimizer_value and optimizer_value[alias] != values[alias]:
+                raise ConfigError(f"conflicting optimizer.{alias} values")
+            optimizer_value[alias] = values.pop(alias)
+            values["optimizer"] = optimizer_value
         _reject_unknown(values, cls, "")
         gradient_value = bool(values.pop("gradient_checkpointing", False))
+        ooo_value = bool(values.pop("ooo_backprop", False))
+        ooo_streams = int(values.pop("ooo_streams", 4))
         compile_value = values.pop("compile", False)
         if isinstance(compile_value, Mapping):
             _reject_unknown(compile_value, _CompileSection, "compile")
@@ -399,10 +506,13 @@ class SpeedtronicConfig:
             "checkpoint": CheckpointConfig,
             "logging": LoggingConfig,
             "distributed": DistributedConfig,
+            "shape_validation": ShapeValidationConfig,
         }
         kwargs: dict[str, Any] = {
             "gradient_checkpointing": gradient_value,
             "compile": bool(compile_value),
+            "ooo_backprop": ooo_value,
+            "ooo_streams": ooo_streams,
         }
         for name, config_type in config_types.items():
             if name in values:
@@ -514,6 +624,7 @@ __all__ = [
     "PrecisionConfig",
     "RunConfig",
     "SchedulerConfig",
+    "ShapeValidationConfig",
     "SpeedtronicConfig",
     "load_config",
     "load_yaml_config",

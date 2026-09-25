@@ -1,0 +1,203 @@
+---
+id: data
+title: Data Pipeline API
+sidebar_label: Data Pipeline
+description: Speedtronic tokenizers, datasets, collators, infinite batching, and DataLoader construction.
+---
+
+# Data pipeline API
+
+## Source-selection order
+
+`build_dataloader()` selects the first available source:
+
+1. Explicit `dataset=` argument.
+2. `data.text_path`.
+3. A live Dataset object stored in `data.dataset` when called programmatically.
+4. A serialized dataset path.
+5. Synthetic data when `synthetic=true`.
+6. Error when synthetic data is disabled and no source exists.
+
+## `CharTokenizer`
+
+```python
+CharTokenizer(vocab_size: int = 256)
+```
+
+UTF-8 byte tokenizer:
+
+```python
+[byte % vocab_size for byte in text.encode("utf-8")]
+```
+
+It is deterministic and stream-friendly but not reversible when `vocab_size < 256`.
+
+Methods:
+
+- `encode(text) -> list[int]`
+- `__call__(text) -> list[int]`
+
+## `SyntheticTokenDataset`
+
+```python
+SyntheticTokenDataset(
+    num_samples=10_000,
+    block_size=128,
+    vocab_size=512,
+    seed=1234,
+)
+```
+
+A map-style dataset that returns:
+
+```python
+{
+    "input_ids": tokens[:-1],
+    "labels": tokens[1:],
+}
+```
+
+Each index uses a generator seeded from the dataset seed plus the index, making item contents independent of access order. Negative indexes are normalized from the end.
+
+`DataConfig.num_tokens` is passed as `num_samples` by the runtime, despite its name.
+
+## `TextFileTokenDataset`
+
+```python
+TextFileTokenDataset(
+    path,
+    block_size,
+    tokenizer=None,
+    vocab_size=256,
+)
+```
+
+An `IterableDataset` that reads UTF-8 text in chunks of `block_size * 4` characters. It combines tokenized chunks with a carry, emits groups of `block_size + 1` tokens, and retains the remainder. A final carry of at least two tokens is emitted as a short block.
+
+The default tokenizer is `CharTokenizer`.
+
+### Tokenizer contract
+
+A tokenizer may expose:
+
+- `encode(text)`, or
+- `__call__(text)`.
+
+Tensor-like results are converted through `.tolist()`; every token is cast to `int`.
+
+:::caution Boundary-sensitive tokenizers
+
+The stream carries token IDs, not raw text. This is safe for the bundled byte tokenizer but can split merges or normalization-sensitive BPE/SentencePiece tokens at read boundaries.
+
+:::
+
+:::caution Iterable workers
+
+`TextFileTokenDataset` does not shard by DataLoader worker. With `num_workers > 1`, every worker can read the same file. Implement a worker-aware iterable dataset for parallel production text ingestion.
+
+:::
+
+## `collate_causal(batch)`
+
+Pads a list of causal dictionaries to the longest input:
+
+| Field | Padding |
+|---|---|
+| `input_ids` | Integer zero |
+| `labels` | Integer `-100` |
+| `attention_mask` | Boolean false |
+
+Every item must contain `input_ids` and `labels` with compatible shapes.
+
+## `collate_batch(batch)`
+
+| First item | Result |
+|---|---|
+| `dict` | Delegate to `collate_causal` |
+| `tuple` or `list` | Transpose equal-width items; stack equal-shaped tensor columns |
+| `torch.Tensor` | Stack tensors |
+| Other | Return the original list |
+
+Empty batches raise `ValueError`. Tuple/list item widths must match.
+
+The function is not a universal PyTorch collator: arbitrary dictionaries are interpreted as causal language-model records.
+
+## `infinite_batches(loader)`
+
+Returns an iterator that repeatedly traverses the loader. If one complete pass yields no batches, it raises `RuntimeError("data loader produced no batches")`.
+
+This makes global-step training independent of finite dataset length.
+
+## `build_dataloader(...)`
+
+```python
+build_dataloader(
+    config,
+    *,
+    dataset=None,
+    tokenizer=None,
+    pin_memory_device=False,
+    vocab_size=None,
+) -> DataLoader
+```
+
+### Dataset construction
+
+- Serialized datasets load through `torch.load(..., weights_only=False)` and must contain a PyTorch Dataset.
+- Synthetic data receives `block_size`, explicit/runtime `vocab_size`, and `data.seed`.
+
+### Loader arguments
+
+| Argument | Behavior |
+|---|---|
+| `batch_size` | `data.micro_batch_size` |
+| `shuffle` | `data.shuffle`, forced false for iterable datasets |
+| `num_workers` | `data.num_workers` |
+| `pin_memory` | Explicit `data.pin_memory`, otherwise `pin_memory_device` |
+| `drop_last` | `data.drop_last` |
+| `collate_fn` | `collate_batch` |
+| `prefetch_factor` | `data.prefetch_factor` or 2 when workers enabled |
+| `persistent_workers` | True when workers enabled |
+
+### Precedence and vocab caveats
+
+The explicit `vocab_size` argument wins. `build_runtime()` always passes `model.vocab_size`, so a separately configured `data.vocab_size` has no effect through the standard YAML path.
+
+## Programmatic custom dataset
+
+```python
+from speedtronic.data import build_dataloader
+
+loader = build_dataloader(
+    config.data,
+    dataset=my_dataset,
+    tokenizer=my_tokenizer,
+    pin_memory_device=False,
+    vocab_size=config.model.vocab_size,
+)
+```
+
+To use the custom loader through the config-only runtime, inject it or construct `Trainer` directly; `build_runtime()` does not expose dataset/tokenizer override parameters.
+
+## Token and sample accounting
+
+Trainer token counts are based on input tensor shape, not tokenizer semantics. A dictionary input with an attention mask uses the mask sum. This can differ from a tokenizer's reported token count after normalization or special tokens.
+
+## Text configuration
+
+```yaml
+data:
+  text_path: /absolute/path/to/train.txt
+  block_size: 128
+  micro_batch_size: 2
+  target_batch_size: 8
+  num_workers: 0
+  prefetch_factor: null
+  pin_memory: null
+  shuffle: false
+  drop_last: true
+```
+
+Use `num_workers: 0` with the bundled text dataset unless you provide a sharding implementation.
+
+For the trainer-facing contracts, continue with [Runtime and Trainer](./runtime-and-trainer) and [Custom data](../tutorials/custom-data).
